@@ -1,129 +1,154 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
-export default function PagamentoSucesso() {
+function PagamentoSucessoContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
 
-  const analysisId =
-    searchParams.get("analysisId");
+  const analysisId = searchParams.get("analysisId");
 
-  const [status, setStatus] = useState(
-    "Verificando pagamento..."
-  );
+  const [status, setStatus] = useState("Verificando pagamento...");
+  const [attempts, setAttempts] = useState(0);
 
   useEffect(() => {
     if (!analysisId) {
-      setStatus(
-        "Não encontramos a análise vinculada ao pagamento."
-      );
+      setStatus("Análise não identificada.");
       return;
     }
 
-    let attempts = 0;
-    const maxAttempts = 30;
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout>;
 
-    let timeout: NodeJS.Timeout;
-
-    const checkPayment = async () => {
+    async function checkPayment() {
       try {
-        const response = await fetch(
-          `/api/payment/${analysisId}`,
-          {
-            cache: "no-store",
-          }
-        );
+        const response = await fetch(`/api/payment/${analysisId}`, {
+          cache: "no-store",
+        });
 
         const data = await response.json();
 
+        if (cancelled) return;
+
         if (data.approved) {
-          setStatus(
-            "Pagamento confirmado! Liberando seu relatório..."
-          );
+          setStatus("Pagamento aprovado. Liberando seu relatório...");
 
-          window.location.href =
-            `/resultado/${analysisId}`;
-
-          return;
-        }
-
-        attempts++;
-
-        if (attempts < maxAttempts) {
-          setStatus(
-            `Aguardando confirmação do pagamento...`
-          );
-
-          timeout = setTimeout(
-            checkPayment,
-            3000
-          );
+          setTimeout(() => {
+            router.replace(`/resultado/${analysisId}`);
+          }, 1000);
 
           return;
         }
 
-        setStatus(
-          "O pagamento foi recebido, mas a confirmação ainda está sendo processada. Aguarde alguns segundos e atualize a página."
-        );
+        setAttempts((current) => {
+          const next = current + 1;
+
+          if (next >= 30) {
+            setStatus(
+              "Ainda não recebemos a confirmação do pagamento. Você pode verificar novamente em alguns instantes."
+            );
+
+            return next;
+          }
+
+          setStatus("Pagamento recebido. Aguardando confirmação...");
+
+          timeoutId = setTimeout(checkPayment, 3000);
+
+          return next;
+        });
       } catch (error) {
-        console.error(
-          "Erro ao verificar pagamento:",
-          error
-        );
+        console.error("Erro ao verificar pagamento:", error);
 
-        attempts++;
-
-        if (attempts < maxAttempts) {
-          timeout = setTimeout(
-            checkPayment,
-            3000
-          );
-        } else {
+        if (!cancelled) {
           setStatus(
-            "Não foi possível confirmar o pagamento automaticamente."
+            "Não foi possível verificar o pagamento agora. Tentaremos novamente."
           );
+
+          timeoutId = setTimeout(checkPayment, 3000);
         }
       }
-    };
+    }
 
     checkPayment();
 
     return () => {
-      if (timeout) {
-        clearTimeout(timeout);
+      cancelled = true;
+
+      if (timeoutId) {
+        clearTimeout(timeoutId);
       }
     };
-  }, [analysisId]);
+  }, [analysisId, router]);
 
   return (
-    <main className="min-h-screen bg-black text-white flex items-center justify-center px-6">
-      <div className="w-full max-w-xl text-center">
-
-        <div className="mb-8">
-          <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full border border-yellow-500/30 bg-yellow-500/10">
-            <span className="text-4xl">
-              🫎
-            </span>
+    <main className="min-h-screen bg-black px-6 py-16 text-white">
+      <div className="mx-auto flex min-h-[70vh] max-w-3xl items-center justify-center">
+        <div className="w-full rounded-3xl border border-white/10 bg-zinc-950 p-8 text-center shadow-2xl md:p-12">
+          <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full border border-yellow-500/30 bg-yellow-500/10">
+            <span className="text-2xl text-yellow-400">✓</span>
           </div>
-        </div>
 
-        <h1 className="text-3xl font-bold mb-4">
-          Quase lá.
-        </h1>
-
-        <p className="text-gray-400 text-lg leading-relaxed">
-          {status}
-        </p>
-
-        <div className="mt-8 rounded-xl border border-white/10 bg-white/[0.03] p-5">
-          <p className="text-sm text-gray-500">
-            Não feche esta página enquanto
-            verificamos a confirmação.
+          <p className="mb-3 text-xs font-semibold uppercase tracking-[0.3em] text-yellow-400">
+            Aristo AI
           </p>
-        </div>
 
+          <h1 className="text-3xl font-bold tracking-tight md:text-4xl">
+            Estamos confirmando seu pagamento.
+          </h1>
+
+          <p className="mx-auto mt-4 max-w-xl text-sm leading-6 text-zinc-400 md:text-base">
+            Assim que o Mercado Pago confirmar a transação, seu relatório
+            estratégico será liberado automaticamente.
+          </p>
+
+          <div className="mt-8 rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+            <div className="mx-auto mb-4 h-6 w-6 animate-spin rounded-full border-2 border-zinc-700 border-t-yellow-400" />
+
+            <p className="text-sm font-medium text-zinc-200">{status}</p>
+          </div>
+
+          {analysisId && (
+            <p className="mt-6 break-all text-xs text-zinc-600">
+              Análise: {analysisId}
+            </p>
+          )}
+
+          {attempts >= 30 && analysisId && (
+            <button
+              onClick={() => router.replace(`/resultado/${analysisId}`)}
+              className="mt-6 rounded-xl bg-yellow-400 px-6 py-3 text-sm font-bold text-black transition hover:bg-yellow-300"
+            >
+              Verificar meu relatório
+            </button>
+          )}
+        </div>
       </div>
     </main>
+  );
+}
+
+function LoadingPagamento() {
+  return (
+    <main className="min-h-screen bg-black px-6 py-16 text-white">
+      <div className="mx-auto flex min-h-[70vh] max-w-3xl items-center justify-center">
+        <div className="text-center">
+          <div className="mx-auto mb-5 h-8 w-8 animate-spin rounded-full border-2 border-zinc-700 border-t-yellow-400" />
+
+          <p className="text-sm text-zinc-400">
+            Carregando confirmação...
+          </p>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+export default function PagamentoSucessoPage() {
+  return (
+    <Suspense fallback={<LoadingPagamento />}>
+      <PagamentoSucessoContent />
+    </Suspense>
   );
 }
